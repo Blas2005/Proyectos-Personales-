@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Laboratorio IA 3D — Reinforcement Learning + Redes Multicapa</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0f19;
+      color: #e2e8f0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+    }
+    #viewport {
+      flex: 1;
+      position: relative;
+      height: 100vh;
+    }
+    #hud-top {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      gap: 12px;
+      z-index: 10;
+    }
+    .stat-card {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      backdrop-filter: blur(8px);
+      padding: 10px 16px;
+      border-radius: 10px;
+      min-width: 120px;
+    }
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+    }
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-top: 2px;
+    }
+    #controls-bar {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.88);
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    button {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      transition: all 0.15s;
+    }
+    button:hover {
+      background: #334155;
+      border-color: #38bdf8;
+    }
+    button.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+    #sidebar {
+      width: 390px;
+      background: #0f172a;
+      border-left: 1px solid #1e293b;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 14px;
+      overflow-y: auto;
+    }
+    .panel {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .badge.disconnected {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+    canvas.panel-canvas {
+      width: 100%;
+      background: #0b0f19;
+      border-radius: 8px;
+      display: block;
+    }
+    .prob-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .prob-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .prob-name { width: 85px; color: #cbd5e1; }
+    .prob-track {
+      flex: 1;
+      height: 10px;
+      background: #0b0f19;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .prob-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7, #38bdf8);
+      width: 33%;
+      transition: width 0.08s ease;
+    }
+    .prob-pct {
+      width: 42px;
+      text-align: right;
+      font-family: monospace;
+      color: #38bdf8;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <div id="hud-top">
+      <div class="stat-card">
+        <div class="stat-label">Episodio</div>
+        <div class="stat-value" id="val-episode">1</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Recompensa Actual</div>
+        <div class="stat-value" id="val-reward">0.0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Mejor Récord</div>
+        <div class="stat-value" id="val-best" style="color: #34d399;">0.0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pasos</div>
+        <div class="stat-value" id="val-steps" style="color: #facc15;">0</div>
+      </div>
+    </div>
+
+    <div id="controls-bar">
+      <button id="btn-1x" class="active" onclick="setSpeed(1)">Velocidad 1x</button>
+      <button id="btn-5x" onclick="setSpeed(5)">Turbo 5x</button>
+      <button id="btn-25x" onclick="setSpeed(25)">Entrenamiento 25x</button>
+      <button id="btn-cam" onclick="toggleCamera()">Cámara: Seguimiento</button>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div class="panel">
+      <div class="panel-title">
+        <span>Cerebro en Vivo (Red Multicapa NumPy)</span>
+        <span id="conn-badge" class="badge disconnected">Conectando...</span>
+      </div>
+      <canvas id="nn-canvas" class="panel-canvas" width="340" height="230"></canvas>
+      <div class="prob-bars">
+        <div class="prob-row">
+          <span class="prob-name">⬅️ Izquierda</span>
+          <div class="prob-track"><div id="bar-0" class="prob-fill"></div></div>
+          <span id="pct-0" class="prob-pct">33%</span>
+        </div>
+        <div class="prob-row">
+          <span class="prob-name">⬆️ Recto</span>
+          <div class="prob-track"><div id="bar-1" class="prob-fill"></div></div>
+          <span id="pct-1" class="prob-pct">33%</span>
+        </div>
+        <div class="prob-row">
+          <span class="prob-name">➡️ Derecha</span>
+          <div class="prob-track"><div id="bar-2" class="prob-fill"></div></div>
+          <span id="pct-2" class="prob-pct">33%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>Curva de Aprendizaje (Recompensa / Episodio)</span>
+      </div>
+      <canvas id="chart-canvas" class="panel-canvas" width="340" height="150"></canvas>
+    </div>
+
+    <div class="panel" style="font-size: 12px; line-height: 1.5; color: #94a3b8;">
+      <div class="panel-title"><span>¿Qué estás viendo?</span></div>
+      <p><strong style="color:#38bdf8;">Láseres 3D (Entradas X):</strong> Los 5 rayos miden la distancia normalizada entre <code>0.0</code> (pared pegada) y <code>1.0</code> (camino libre).</p>
+      <p style="margin-top:6px;"><strong style="color:#34d399;">Capas Ocultas:</strong> Multiplicación matricial <code>Z = W·X + b</code> y activación no lineal.</p>
+      <p style="margin-top:6px;"><strong style="color:#facc15;">Salida Softmax:</strong> Probabilidad de cada giro entrenada con Backpropagation por Refuerzo.</p>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // =========================================================
+    // 1. ESCENA 3D CON THREE.JS
+    // =========================================================
+    const viewport = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x070a12);
+    scene.fog = new THREE.FogExp2(0x070a12, 0.008);
+
+    const camera = new THREE.PerspectiveCamera(60, viewport.clientWidth / viewport.clientHeight, 0.1, 300);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    renderer.shadowMap.enabled = true;
+    viewport.appendChild(renderer.domElement);
+
+    // Luces
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0x38bdf8, 0.9);
+    dirLight.position.set(30, 50, 20);
+    scene.add(dirLight);
+
+    // Grilla base cibernética
+    const grid = new THREE.GridHelper(140, 70, 0x1e293b, 0x0f172a);
+    grid.position.y = -0.05;
+    scene.add(grid);
+
+    // Construcción de la pista elíptica (rxOuter=42, rzOuter=28, rxInner=26, rzInner=12)
+    function createTrackBorder(rx, rz, color) {
+      const points = [];
+      const segments = 128;
+      for (let i = 0; i <= segments; i++) {
+        const theta = (i / segments) * Math.PI * 2;
+        points.push(new THREE.Vector3(rx * Math.cos(theta), 0.3, rz * Math.sin(theta)));
+      }
+      const geom = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({ color: color, linewidth: 2 });
+      const line = new THREE.Line(geom, mat);
+      scene.add(line);
+
+      // Muro bajo 3D
+      for (let i = 0; i < segments; i += 2) {
+        const theta = (i / segments) * Math.PI * 2;
+        const postGeom = new THREE.BoxGeometry(0.6, 0.8, 0.6);
+        const postMat = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.35 });
+        const post = new THREE.Mesh(postGeom, postMat);
+        post.position.set(rx * Math.cos(theta), 0.4, rz * Math.sin(theta));
+        scene.add(post);
+      }
+    }
+    createTrackBorder(42, 28, 0x0ea5e9);
+    createTrackBorder(26, 12, 0x0ea5e9);
+
+    // Obstáculos cilíndricos
+    const obstaclesData = [
+      [24.0, -14.0, 1.8], [33.0, 4.0, 2.0], [12.0, 19.5, 1.8],
+      [-15.0, 18.5, 1.8], [-34.0, -2.0, 2.0], [-22.0, -15.0, 1.8]
+    ];
+    obstaclesData.forEach(([ox, oz, orad]) => {
+      const geom = new THREE.CylinderGeometry(orad, orad, 2.2, 24);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        emissive: 0x991b1b,
+        emissiveIntensity: 0.5,
+        roughness: 0.3
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(ox, 1.1, oz);
+      scene.add(mesh);
+    });
+
+    // Auto 3D
+    const carGroup = new THREE.Group();
+    const chassisGeom = new THREE.BoxGeometry(2.4, 0.7, 1.3);
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.3 });
+    const chassis = new THREE.Mesh(chassisGeom, chassisMat);
+    chassis.position.y = 0.5;
+    carGroup.add(chassis);
+
+    const cabinGeom = new THREE.BoxGeometry(1.2, 0.5, 1.0);
+    const cabinMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0 });
+    const cabin = new THREE.Mesh(cabinGeom, cabinMat);
+    cabin.position.set(-0.1, 1.0, 0);
+    carGroup.add(cabin);
+    scene.add(carGroup);
+
+    // 5 Rayos Láser (Sensores)
+    const laserLines = [];
+    const laserDots = [];
+    for (let i = 0; i < 5; i++) {
+      const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const mat = new THREE.LineBasicMaterial({ color: 0x10b981 });
+      const line = new THREE.Line(geom, mat);
+      scene.add(line);
+      laserLines.push(line);
+
+      const dotGeom = new THREE.SphereGeometry(0.3, 12, 12);
+      const dotMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+      const dot = new THREE.Mesh(dotGeom, dotMat);
+      scene.add(dot);
+      laserDots.push(dot);
+    }
+
+    let followCam = true;
+    function toggleCamera() {
+      followCam = !followCam;
+      document.getElementById('btn-cam').innerText = followCam ? 'Cámara: Seguimiento' : 'Cámara: Aérea';
+    }
+
+    // Estado recibido de Python
+    let latestState = {
+      x: 0, z: -20, heading: 0,
+      sensors: [1, 1, 1, 1, 1],
+      hits: [[0,0],[0,0],[0,0],[0,0],[0,0]],
+      hidden: [0, 0, 0, 0, 0, 0, 0, 0],
+      probs: [0.33, 0.34, 0.33],
+      action: 1,
+      episode: 1,
+      reward: 0,
+      best_reward: 0,
+      steps: 0,
+      history: []
+    };
+
+    // =========================================================
+    // 2. CONEXIÓN WEBSOCKET CON PYTHON
+    // =========================================================
+    let ws = null;
+    function connectWS() {
+      const badge = document.getElementById('conn-badge');
+      ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onopen = () => {
+        badge.innerText = 'Python Conectado';
+        badge.classList.remove('disconnected');
+      };
+      ws.onclose = () => {
+        badge.innerText = 'Reconectando...';
+        badge.classList.add('disconnected');
+        setTimeout(connectWS, 1000);
+      };
+      ws.onmessage = (event) => {
+        latestState = JSON.parse(event.data);
+        updateHUD(latestState);
+      };
+    }
+    connectWS();
+
+    function setSpeed(speed) {
+      ['1x', '5x', '25x'].forEach(s => document.getElementById('btn-' + s).classList.remove('active'));
+      document.getElementById('btn-' + speed + 'x').classList.add('active');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'set_speed', speed: speed }));
+      }
+    }
+
+    // =========================================================
+    // 3. DIBUJO DEL HUD, RED NEURONAL Y GRÁFICO
+    // =========================================================
+    const nnCanvas = document.getElementById('nn-canvas');
+    const nnCtx = nnCanvas.getContext('2d');
+    const chartCanvas = document.getElementById('chart-canvas');
+    const chartCtx = chartCanvas.getContext('2d');
+
+    function updateHUD(st) {
+      document.getElementById('val-episode').innerText = st.episode;
+      document.getElementById('val-reward').innerText = st.reward.toFixed(1);
+      document.getElementById('val-best').innerText = st.best_reward.toFixed(1);
+      document.getElementById('val-steps').innerText = st.steps;
+
+      for (let i = 0; i < 3; i++) {
+        const pct = Math.round((st.probs[i] || 0) * 100);
+        document.getElementById('bar-' + i).style.width = pct + '%';
+        document.getElementById('pct-' + i).innerText = pct + '%';
+      }
+
+      drawNeuralNetwork(st.sensors, st.hidden || [0,0,0,0,0,0,0,0], st.probs, st.action);
+      drawRewardChart(st.history || []);
+    }
+
+    function drawNeuralNetwork(inputs, hidden, outputs, chosenAction) {
+      nnCtx.clearRect(0, 0, nnCanvas.width, nnCanvas.height);
+      const layers = [inputs, hidden.slice(0, 8), outputs];
+      const xPositions = [50, 170, 290];
+      const nodeCoords = [];
+
+      for (let l = 0; l < layers.length; l++) {
+        const count = layers[l].length;
+        const coords = [];
+        const totalHeight = nnCanvas.height - 36;
+        const stepY = totalHeight / (count + 1);
+        for (let i = 0; i < count; i++) {
+          coords.push({ x: xPositions[l], y: 18 + stepY * (i + 1), val: layers[l][i] });
+        }
+        nodeCoords.push(coords);
+      }
+
+      // Conexiones
+      for (let l = 0; l < nodeCoords.length - 1; l++) {
+        for (let i = 0; i < nodeCoords[l].length; i++) {
+          for (let j = 0; j < nodeCoords[l + 1].length; j++) {
+            const act = Math.abs(nodeCoords[l][i].val * nodeCoords[l + 1][j].val);
+            nnCtx.strokeStyle = `rgba(56, 189, 248, ${0.08 + Math.min(0.65, act * 0.6)})`;
+            nnCtx.lineWidth = 1 + act * 1.5;
+            nnCtx.beginPath();
+            nnCtx.moveTo(nodeCoords[l][i].x, nodeCoords[l][i].y);
+            nnCtx.lineTo(nodeCoords[l + 1][j].x, nodeCoords[l + 1][j].y);
+            nnCtx.stroke();
+          }
+        }
+      }
+
+      // Nodos
+      const labelsOut = ['Izq', 'Recto', 'Der'];
+      for (let l = 0; l < nodeCoords.length; l++) {
+        for (let i = 0; i < nodeCoords[l].length; i++) {
+          const n = nodeCoords[l][i];
+          const v = Math.max(-1, Math.min(1, n.val));
+          nnCtx.beginPath();
+          nnCtx.arc(n.x, n.y, 10, 0, Math.PI * 2);
+          if (v >= 0) {
+            nnCtx.fillStyle = `rgb(${Math.round(15 + v * 40)}, ${Math.round(40 + v * 165)}, ${Math.round(80 + v * 175)})`;
+          } else {
+            const av = Math.abs(v);
+            nnCtx.fillStyle = `rgb(${Math.round(60 + av * 180)}, 30, 50)`;
+          }
+          nnCtx.fill();
+          nnCtx.lineWidth = (l === 2 && i === chosenAction) ? 3 : 1.5;
+          nnCtx.strokeStyle = (l === 2 && i === chosenAction) ? '#facc15' : '#94a3b8';
+          nnCtx.stroke();
+
+          if (l === 2) {
+            nnCtx.fillStyle = '#e2e8f0';
+            nnCtx.font = '11px sans-serif';
+            nnCtx.fillText(labelsOut[i], n.x + 15, n.y + 4);
+          }
+        }
+      }
+    }
+
+    function drawRewardChart(history) {
+      chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+      if (history.length < 2) return;
+      const minR = Math.min(...history, -10);
+      const maxR = Math.max(...history, 20);
+      const range = Math.max(1, maxR - minR);
+
+      chartCtx.strokeStyle = '#38bdf8';
+      chartCtx.lineWidth = 2;
+      chartCtx.beginPath();
+      history.forEach((r, idx) => {
+        const x = 10 + (idx / (history.length - 1)) * (chartCanvas.width - 20);
+        const y = chartCanvas.height - 15 - ((r - minR) / range) * (chartCanvas.height - 30);
+        if (idx === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      });
+      chartCtx.stroke();
+    }
+
+    // =========================================================
+    // 4. LOOP DE ANIMACIÓN 3D
+    // =========================================================
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Posición y rotación suave del auto
+      carGroup.position.x += (latestState.x - carGroup.position.x) * 0.35;
+      carGroup.position.z += (latestState.z - carGroup.position.z) * 0.35;
+      carGroup.rotation.y = -latestState.heading;
+
+      // Actualizar rayos láser
+      for (let i = 0; i < 5; i++) {
+        const hit = latestState.hits[i] || [latestState.x, latestState.z];
+        const reading = latestState.sensors[i] !== undefined ? latestState.sensors[i] : 1.0;
+
+        const positions = new Float32Array([
+          carGroup.position.x, 0.55, carGroup.position.z,
+          hit[0], 0.55, hit[1]
+        ]);
+        laserLines[i].geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        // Color del láser según cercanía al obstáculo (rojo = cerca, verde = despejado)
+        const color = new THREE.Color().setHSL(reading * 0.33, 0.95, 0.5);
+        laserLines[i].material.color = color;
+        laserDots[i].material.color = color;
+        laserDots[i].position.set(hit[0], 0.55, hit[1]);
+      }
+
+      if (followCam) {
+        const backX = carGroup.position.x - Math.cos(latestState.heading) * 14;
+        const backZ = carGroup.position.z - Math.sin(latestState.heading) * 14;
+        camera.position.x += (backX - camera.position.x) * 0.1;
+        camera.position.y += (10 - camera.position.y) * 0.1;
+        camera.position.z += (backZ - camera.position.z) * 0.1;
+        camera.lookAt(carGroup.position.x + Math.cos(latestState.heading) * 6, 0.5, carGroup.position.z + Math.sin(latestState.heading) * 6);
+      } else {
+        camera.position.set(0, 68, 0.1);
+        camera.lookAt(0, 0, 0);
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = viewport.clientWidth / viewport.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    });
+  </script>
+</body>
+</html>
